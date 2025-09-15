@@ -1,0 +1,120 @@
+---
+- name: Pull vars from vars/main.yml
+  include_vars:
+    file: main.yml
+
+# *** temporary method of retrieving the install file until we can pull it from Artifactory
+# download file from remote share to a temp dir in the exec node file system
+# NOTE: this task takes awhile to execute. Once we can pull from Artifactory, it will be much faster
+- name: fetch file from remote share
+  ansible.builtin.fetch:
+    src: "{{ file_share_src }}"
+    dest: "{{ localhost_src }}"
+    flat: true
+  delegate_to: "{{ file_share_host }}" # delegate to server which hosts the RSA install file
+
+# copy the file from exec node temp file system to provisioned host
+- name: copy file to target windows host
+  ansible.builtin.win_copy:
+    src: "{{ localhost_src }}"
+    dest: "{{ prov_host_dest }}"
+
+# run the posh commands which kick off the RSA installer from the installer
+# file copied over from the file share server
+- name: Run POSH commands to install RSA
+  ansible.windows.win_powershell:
+    script: |
+          // Script to run with variables inserted
+    // NOTE: special characters are escaped (only backslash and single-quote characters though):
+    //    \ ==turns-into==> \\
+    //    ' ==turns-into==> \'
+    #MyPowerShellScript = ' \
+    # Variables \n\
+        # Windows Server OS access \n\
+            $templateUsername = "' + {{ PEDeployUsername }} + '" \n\
+            $templatePassword = "' + {{ PEDeployPassword }} + '" \n\
+            $templatePasswordSS = ConvertTo-SecureString -AsPlainText -Force -String $templatePassword \n\
+            $templateCreds = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $templateUsername,$templatePasswordSS \n\
+            $logPath = "c:\\temp\\WuitWindows-ConfigureOS_.log" \n\
+        \n\
+        # Server Name based variables \n\
+            $vmName = "' + {{ vmName }} + '" \n\
+            $vmFQDN = $vmName + ".accounts.ad.wustl.edu" \n\
+            $serverAdminGroup = "$vmName Server Admins" \n\
+    \n\
+    # Start script \n\
+        "Script starting..." | Out-File $logPath \n\
+    "STEP - Log beginning script values" | Out-File $logPath -Append \n\
+    # Log beginning script values \n\
+        "vmName: $vmName" | Out-File $logPath -Append \n\
+        "serverAdminGroup: $serverAdminGroup" | Out-File $logPath -Append \n\
+        "vmFQDN: $vmFQDN" | Out-File $logPath -Append \n\
+    \n\
+    "STEP - Run all local scripts" | Out-File $logPath -Append \n\
+    # Run all local scripts \n\
+        $invokeCommandOutput = Invoke-Command -ComputerName $vmFQDN -Credential $templateCreds -ScriptBlock { \n\
+            # Start \n\
+                Write-Host "OS configuration starting. [$((Get-Date).ToString("yyyy-MM-dd hh:mm:ss tt"))]" \n\
+            # Pre-Config \n\
+                $adminCheck = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator") \n\
+                Write-Host "  Admin check results (True=Elevated Admin): $adminCheck [$((Get-Date).ToString("yyyy-MM-dd hh:mm:ss tt"))]" \n\
+                $peFilemapUsername = "' + {{ PEFileMapUsername }} + '" \n\
+                $peFilemapPassword = "' + {{ PEFileMapPassword }} + '" \n\
+                Write-Host "  Mapping Q: drive for deployment file access... [$((Get-Date).ToString("yyyy-MM-dd hh:mm:ss tt"))]" \n\
+                net use q: \\\\files.wustl.edu\\pedeploy$ /user:$peFilemapUsername $peFilemapPassword \n\
+            # Crowdstrike Install \n\
+                Write-Host "  Starting Crowdstrike Agent deploy... [$((Get-Date).ToString("yyyy-MM-dd hh:mm:ss tt"))]" \n\
+                New-Item -ItemType Directory c:\\temp -Force | Out-Null \n\
+                Write-Host "    Copying Crowdstrike Agent locally..." \n\
+                Copy-Item "q:\\WindowsSensor_Latest.exe" "c:\\temp\\" \n\
+                Write-Host "    Unblocking Crowdstrike Agent executable..." \n\
+                Unblock-File -Path "c:\\temp\\WindowsSensor_Latest.exe" -Confirm:$false \n\
+                Write-Host "    Executing Crowdstrike Agent install..." \n\
+                cmd /c "c:\\temp\\WindowsSensor_Latest.exe CID=C922A1C47C544CDA90A068D7ACC804DF-F4 /install /quiet /norestart /log c:\\temp\\WindowsSensor_Latest.txt" \n\
+            # NCPA agent install for Nagios \n\
+                Write-Host "Starting Nagios NCPA Agent deploy... [$((Get-Date).ToString("yyyy-MM-dd hh:mm:ss tt"))]" \n\
+                Write-Host "    Copying Nagios NCPA Agent locally..." \n\
+                Copy-Item "q:\\ncpa_latest.exe" "c:\\temp\\" \n\
+                Write-Host "    Unblocking Nagios NCPA Agent executable..." \n\
+                Unblock-File -Path "c:\\temp\\ncpa_latest.exe" -Confirm:$false \n\
+                Write-Host "    Executing Nagios NCPA Agent install..." \n\
+                cmd /c "c:\\temp\\ncpa_latest.exe /S /TOKEN=\'dgbr6dfj55fb\' /NRDPURL=\'http://alderaan.soc.wustl.edu/nrdp/\' /NRDPTOKEN=\'dgbr6dfj55fb\' /NRDPHOSTNAME=\'%COMPUTERNAME%.accounts.ad.wustl.edu\'" \n\
+            # Splunk Forwarder install \n\
+                Write-Host "Starting Splunk Forwarder deploy... [$((Get-Date).ToString("yyyy-MM-dd hh:mm:ss tt"))]" \n\
+                Write-Host "    Copying Nagios Splunk Forwarder msi locally..." \n\
+                Copy-Item "q:\\splunkforwarder_latest.msi" "c:\\temp\\" \n\
+                Write-Host "    Unblocking Splunk Forwarder msi..." \n\
+                Unblock-File -Path "c:\\temp\\splunkforwarder_latest.msi" -Confirm:$false \n\
+                Write-Host "    Executing Splunk Forwarder install..." \n\
+                msiexec /i c:\\temp\\splunkforwarder_latest.msi DEPLOYMENT_SERVER=ds.splunk.wustl.edu:8089 AGREETOLICENSE=Yes /quiet \n\
+            # Add Server Admins group to local Administrators \n\
+                $Computer = $env:computername \n\
+                Write-Host "  Adding \'$Computer Server Admins\' to local Administrators group... (Started at: $((Get-Date).ToString("yyyy-MM-dd hh:mm:ss tt")))" \n\
+                If ((Get-LocalGroupMember -Group Administrators | Where Name -eq "ACCOUNTS\$Computer Server Admins") -eq $null) { #Only add if not already in local Administrators group (e.g. you are rerunning this workflow) \n\
+                    Add-LocalGroupMember -Group Administrators -Member "$Computer Server Admins" \n\
+                } \n\
+            # Setup all drives, except drive 0, as GPT and format \n\
+                Write-Host "  Configurating secondary disks... [$((Get-Date).ToString("yyyy-MM-dd hh:mm:ss tt"))]" \n\
+                Write-Host "    Intializing Offline secondary disks..." \n\
+                Get-Disk | Where-Object -Property Number -GT 0 | Set-Disk -IsOffline $true  \n\
+                Write-Host "    Partitioning GPT, formatting, and assigning drive letter to secondary disks..." \n\
+                Get-Disk | Where-Object {$_.Number -GT 0 -and $_.PartitionStyle -eq "RAW"} | Initialize-Disk -PartitionStyle GPT -PassThru | New-Partition -AssignDriveLetter -UseMaximumSize | Format-Volume -FileSystem NTFS -NewFileSystemLabel "Data" -Confirm:$false | Out-Null \n\
+            # Done \n\
+                Write-Host "OS configuration complete. [$((Get-Date).ToString("yyyy-MM-dd hh:mm:ss tt"))]" \n\
+        } \n\
+    \n\
+    # Output Results \n\
+        "" | Out-File $logPath -Append \n\
+        "Output from Invoke-Command:" | Out-File $logPath -Append \n\
+        "***************************" | Out-File $logPath -Append \n\
+        $invokeCommandOutput | Out-File $logPath -Append \n\
+        $invokeCommandOutput \n\
+  register: pwsh_output
+
+- name: Output std
+  debug:
+    var: pwsh_output
+    verbosity: 1
+  delegate_to: localhost
+
+  

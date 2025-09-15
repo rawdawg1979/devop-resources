@@ -1,0 +1,9 @@
+---
+- name: Windows post provisioning
+  hosts: "{{ fqdn }}" # delegating to the fqdn of the newly provisioned windows host
+  gather_facts: false
+
+  tasks:
+    - name: RSA Install
+      include_tasks:
+        file: ./tasks/rsa_install.yml

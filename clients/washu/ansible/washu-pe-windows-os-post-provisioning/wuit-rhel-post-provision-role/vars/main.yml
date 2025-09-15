@@ -1,0 +1,8 @@
+---
+# RSA install file transer path:
+#   file_share_src -> localhost_src -> prov_host_dest
+file_share_src: D:\Provision\RSA\RSAAuthAgent744Corpx64.msi
+localhost_src: ~/provisioning/tmp_files/
+prov_host_dest: C:\temp\
+rsa_installer_file: C:\temp\RSAAuthAgent744Corpx64.msi
+file_share_host: files.accounts.ad.wustl.edu # must be added to inv -- where we are pulling installer files from currently

@@ -1,0 +1,35 @@
+---
+- name: Run POSH commands to update VM registry
+  ansible.windows.win_powershell:
+    script: |
+      [CmdletBinding()]
+      param (
+          [String] $bpName,
+          [String] $classification,
+          [String] $vmOwner,
+          [String] $cloneTemplate,
+          [String] $notes
+      )
+
+      $date=Get-Date -format MM/dd/yyyyy
+      New-ItemProperty -Path Registry::HKLM\SOFTWARE\Ameren -Name BlueprintName -Value $bpName  -Force
+      New-ItemProperty -Path Registry::HKLM\SOFTWARE\Ameren -Name Classification -Value $classification  -Force
+      New-ItemProperty -Path Registry::HKLM\SOFTWARE\Ameren -Name VMOwner -Value $vmOwner  -Force
+      New-ItemProperty -Path Registry::HKLM\SOFTWARE\Ameren -Name ClonefromTemplate -Value $cloneTemplate  -Force
+      New-ItemProperty -Path Registry::HKLM\SOFTWARE\Ameren -Name Notes -Value $notes  -Force
+      New-ItemProperty -Path Registry::HKLM\SOFTWARE\Ameren -Name ServerBuildDate -Value $date  -Force
+    
+    parameters:
+      bpName: "{{ bpName }}"                 # blueprint name
+      classification: "{{ classification }}" # vm classification (dev, prod, etc)
+      vmOwner: "{{ vmOwner }}"               # owner of the vm
+      cloneTemplate: "{{ cloneTemplate }}"   # name of template VM was provisioned
+      notes: "{{ notes }}"                   # any notes about the vm
+
+  register: pwsh_output
+
+- name: Output std
+  debug:
+    var: pwsh_output
+    verbosity: 1
+  delegate_to: localhost

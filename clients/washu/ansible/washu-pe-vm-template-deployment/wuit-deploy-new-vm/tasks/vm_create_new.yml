@@ -1,0 +1,289 @@
+---
+- name: Get the datacenters
+  vmware.vmware_rest.vcenter_datacenter_info:
+  register: datacenters_list
+
+- name: Get the clusters
+  vmware.vmware_rest.vcenter_cluster_info:
+    filter_names: 
+      - "{{ cluster }}"            
+  register: clusters_list
+
+- name: Get the datastores
+  vmware.vmware_rest.vcenter_datastore_info:
+    filter_names:
+      - "{{ datastore }}"            
+  register: datastores_list
+
+- name: Get the folders
+  vmware.vmware_rest.vcenter_folder_info:
+    filter_names:
+      - "{{ vm_folder }}"
+  register: folders_list
+
+- name: Get the folders that are the VIRTUAL_MACHINE type
+  vmware.vmware_rest.vcenter_folder_info:
+    filter_type: VIRTUAL_MACHINE
+  register: folders_type_vm_list
+
+- name: Get the first cluster info
+  vmware.vmware_rest.vcenter_cluster_info:
+    cluster: '{{ clusters_list.value[0].cluster }}'
+  register: cluster_info
+
+- name: Get the local content libraries
+  vmware.vmware_rest.content_locallibrary_info:
+  register: content_libraries_list
+  
+- name: Get the local content library templates
+  vmware.vmware_rest.content_library_item_info:
+    library_id: '{{ content_libraries_list.value[0].id }}'
+  register: library_templates_list
+
+- name: Set fact for the template name
+  set_fact:
+    template_result: "{{ library_templates_list.value | selectattr('name', 'eq', vm_template) | first }}"
+
+# All the below are for education/debugging.
+# Call via -v or higher on the command line or specifiying verbosity of 1 or higher in the AAP template.
+# Remove when desired.
+
+- name: Display the datacenters
+  debug:
+    var: datacenters_list.value[0].name
+    verbosity: 1
+
+- name: Display the clusters
+  debug:
+    var: clusters_list
+    verbosity: 1
+
+- name: Display the datastores
+  debug:
+    var: datastores_list
+    verbosity: 1
+
+- name: Display the folders_list
+  debug:
+    var: folders_list
+    verbosity: 1
+  
+- name: Display the folders are vm type
+  debug:
+    var: folders_type_vm_list
+    verbosity: 1
+
+- name: Display the info for cluster_info
+  debug:
+    var: cluster_info
+    verbosity: 1
+
+- name: Display the info for cluster_info.id
+  debug:
+    var: cluster_info.id
+    verbosity: 1
+
+- name: Display the info for datastores_list.value[0].datastore
+  debug:
+    var: datastores_list.value[0].datastore
+    verbosity: 1
+
+- name: Display the info for folders_list.value[0].folder
+  debug:
+    var: folders_list.value[0].folder
+    verbosity: 1
+
+- name: Display the info for cluster_info.value.resource_pool
+  debug:
+    var: cluster_info.value.resource_pool
+    verbosity: 1
+
+- name: Display the info for host_name
+  debug:
+    var: host_name
+    verbosity: 1
+
+- name: Display the local content libraries
+  debug:
+    var: content_libraries_list
+    verbosity: 1
+
+- name: Display the libary templates
+  debug:
+    var: library_templates_list
+    verbosity: 1
+ 
+- name: Display the info for fact template_result
+  debug:
+    var: template_result
+    verbosity: 1
+
+# DEPLOY VM From Template
+- name: Create a VM from the {{ os_type }} {{ vm_template }} template
+  vmware.vmware_rest.vcenter_vmtemplate_libraryitems:
+    name: "{{ host_name }}"
+    library: "{{ content_libraries_list.value[0].id }}"
+    template_library_item: "{{ template_result.id }}"
+    placement:
+      cluster: "{{ cluster_info.id }}"
+      # typical folder
+      folder: "{{ folders_list.value[0].folder }}"
+      resource_pool: "{{ cluster_info.value.resource_pool }}" 
+    state: deploy
+    powered_on: "{{ vm_powered_on }}"
+    hardware_customization:
+      cpu_update:
+        num_cpus: "{{ cpu_count }}"
+        num_cores_per_socket: "{{ cpu_core_count }}"
+      memory_update:
+        memory: "{{ u_memory_gb * 1024 }}"
+  register: new_vm
+
+- name: Wait until vm_tools shows a running state on VM
+  vmware.vmware_rest.vcenter_vm_tools_info:
+    vm: '{{ new_vm.value }}'
+  register: vm_tools_info
+  until:
+  - vm_tools_info is not failed
+  - vm_tools_info.value.run_state == "RUNNING"
+  retries: 60
+  delay: 5
+
+# this is implemented with a retry because the VM network info is not immediately populated
+- name: Get guest network interfaces information
+  vmware.vmware_rest.vcenter_vm_guest_networking_interfaces_info:
+    vm: '{{ new_vm.value }}'
+  register: vm_network_info
+  until: vm_network_info.value
+  retries: 60
+  delay: 5
+
+- name: Display vm_network_info
+  debug:
+    var: vm_network_info
+    verbosity: 1
+
+- name: Remove default NIC
+  community.vmware.vmware_guest_network:
+    name: "{{ host_name }}"
+    mac_address: "{{ vm_network_info.value[0].mac_address }}"
+    state: absent
+
+- name: Add VM to correct network
+  community.vmware.vmware_guest_network:
+    name: "{{ host_name }}"
+    vlan_id: "{{ vlan_id }}"
+
+- name: Power VM off before applying customization specs
+  vmware.vmware_rest.vcenter_vm_power:
+    state: stop
+    vm: '{{ new_vm.value }}'
+
+# LINUX GUEST CUSTOMIZATION
+- name: Update the VM created from the Linux {{ vm_template }} template
+  vmware.vmware_rest.vcenter_vm_guest_customization:
+    vm: "{{ new_vm.value }}"
+    configuration_spec:
+      linux_config:
+        domain: "{{ domain_name }}"
+        hostname:
+          fixed_name: "{{ host_name }}"
+          type: FIXED
+        time_zone: "{{ vm_time_zone }}"
+    interfaces:
+    - adapter:
+        ipv4:
+          type: STATIC
+          gateways:
+          - "{{ default_gateway }}" # 10.251.22.1
+          ip_address: "{{ host_ip }}"
+          prefix: "{{ subnet_mask }}"
+    global_DNS_settings:
+      dns_suffix_list:
+      - "{{ domain_name }}"
+      dns_servers:
+      - "{{ vm_dns_server_1 }}"
+      - "{{ vm_dns_server_2 }}"
+  when: os_type | lower == "linux"
+
+# WINDOWS GUEST CUSTOMIZATION
+- name: Update the VM created from the Windows {{ vm_template }} template
+  vmware.vmware_rest.vcenter_vm_guest_customization:
+    vm: "{{ new_vm.value }}"
+    configuration_spec:
+      windows_config:
+        reboot: REBOOT
+        sysprep:
+          domain:
+            domain: "{{ domain_name }}"
+            domain_username: "{{ ansible_user }}"
+            domain_password: "{{ ansible_password }}"
+            type: DOMAIN
+          gui_unattended:
+            auto_logon: false
+            auto_logon_count: 0
+            time_zone: 0
+          user_data:
+            computer_name:
+              fixed_name: "{{ host_name }}"
+              type: FIXED
+            product_key: WMDGN-G9PQG-XVVXX-R3X43-63DFG # generic product key
+            organization: Washington University
+            full_name: "{{ host_name }}"
+    interfaces:
+    - adapter:
+        ipv4:
+          type: STATIC
+          # modifying the default gateway and subnet mask seems to corrupt the winrm configuration -- likely because of how winrm is configured in the template
+          # TODO: figure out how to properly configure the default gateway on the machine without corrupting winrm
+          gateways:
+          - "{{ default_gateway }}" # 10.251.22.1
+          ip_address: "{{ host_ip }}"
+          prefix: "{{ subnet_mask }}"
+    global_DNS_settings:
+      dns_suffix_list:
+      - "{{ domain_name }}"
+      dns_servers:
+      - "{{ vm_dns_server_1 }}"
+      - "{{ vm_dns_server_2 }}"
+  when: os_type | lower == "windows"
+
+
+- name: Power VM on after deployment
+  vmware.vmware_rest.vcenter_vm_power:
+    state: start
+    vm: '{{ new_vm.value }}'
+
+- name: Wait until nm_tools shows a running state on VM
+  vmware.vmware_rest.vcenter_vm_tools_info:
+    vm: '{{ search_result.value[0].vm }}'
+  register: vm_tools_info
+  until:
+  - vm_tools_info is not failed
+  - vm_tools_info.value.run_state == "RUNNING"
+  retries: 60
+  delay: 5
+
+# Wait for FQDN of VM to be resolvable
+- name: Wait for windows guest customization to complete
+  ansible.windows.win_wait_for:
+    host: "{{ fqdn }}"
+    #port: 389
+    delay: 360
+    timeout: 180
+    #connect_timeout: 30
+  when: os_type | lower == "windows"
+  delegate_to: "{{ windows_dns_host }}"
+
+- name: Wait for linux guest customization
+  ansible.builtin.wait_for:
+    host: "{{ fqdn }}"
+    #port: 22
+    delay: 360
+    timeout: 180
+    #connect_timeout: 30
+  when: os_type | lower == "linux"
+- name: Ensure we can ping the new VM
+  win_shell: | 
+    Test-Connection {{ host_name }}@accounts.wustl.com 
+      

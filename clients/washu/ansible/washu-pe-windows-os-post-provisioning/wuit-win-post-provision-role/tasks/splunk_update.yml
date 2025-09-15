@@ -1,0 +1,77 @@
+---
+- name: Run POSH commands to update Splunk
+  ansible.windows.win_powershell:
+    script: |
+      Function Write-Log
+      {
+          Param ([string]$logstring)
+          $currentTime = get-date -Format yyyy-MM-dd__HH:mm:ss
+          Add-content $Logfile -value "$currentTime >> $logstring"
+      }
+
+      $LogPath = "C:\windows\logs\ProvisionIT\"
+      if (!(test-path -path $LogPath)){ write-verbose "need to create path"; new-item -ItemType Directory $LogPath}
+      $Logfile = "$($LogPath)$(gc env:computername)-splunk_fix_script.log"
+
+      Write-Log "Start Splunk Forwarder Fix Script"
+      Write-Log " - Build version 1.3 @ 2020-06-08"
+      Write-Log " - JIRA https://jira.ameren.com/browse/IA-164"
+      $currentDate = get-date -format yyyy-MM-dd
+
+
+      ### Determine hostname
+      write-verbose "The current Windows Computername is: $env:COMPUTERNAME"
+      $hstname = $env:COMPUTERNAME
+
+
+      ### Pull server name from Splunk config
+      $origSplunkServername = & "C:\Program Files\SplunkUniversalForwarder\bin\splunk.exe" show servername
+      $origSplunkHostname = & "C:\Program Files\SplunkUniversalForwarder\bin\splunk.exe"  show default-hostname
+
+
+      ### Check the current default-hostname
+      & "C:\Program Files\SplunkUniversalForwarder\bin\splunk.exe"  show default-hostname
+
+      Write-Log "Pre-execution status:"
+      Write-Log "`t Windows Hostname: $hstname"
+      Write-Log "`t $origSplunkServername"
+      Write-Log "`t $origSplunkHostname"
+
+      ### This will set Splunk server name and default-hostname equal to Windows Computername
+      write-verbose "We will now set the Splunk servername and default-hostname values as Computername"
+      Write-Log "Setting hostname info into Splunk config."
+      & "C:\Program Files\SplunkUniversalForwarder\bin\splunk.exe" set servername $hstname
+      & "C:\Program Files\SplunkUniversalForwarder\bin\splunk.exe" set default-hostname $hstname
+
+      ### This will delete the navigate to Splunk etc folder for command execution
+      Write-Log "Renaming old .cfg file in the etc folder."
+      Rename-Item "C:\Program Files\SplunkUniversalForwarder\etc\instance.cfg" "C:\Program Files\SplunkUniversalForwarder\etc\instance.cfg-$($currentDate).old"
+      write-verbose "We will now fix the GUID issue and will initiate Splunk restart after."
+
+      ### This will restart splunk
+      Write-Log "Restarting splunk service."
+      & "C:\Program Files\SplunkUniversalForwarder\bin\splunk.exe" restart
+      write-verbose ""
+      write-verbose "To show the updated Splunk servername and default-hostname, you might need to input your Splunk admin credentials"
+      $afterSplunkServername = & "C:\Program Files\SplunkUniversalForwarder\bin\splunk.exe" show servername
+      $afterSplunkHostname = & "C:\Program Files\SplunkUniversalForwarder\bin\splunk.exe"  show default-hostname
+
+
+      ### Check the current default-hostname
+      & "C:\Program Files\SplunkUniversalForwarder\bin\splunk.exe"  show default-hostname
+
+      Write-Log "Post-execution status:"
+      Write-Log "`t $afterSplunkServername"
+      Write-Log "`t $afterSplunkHostname"
+
+      & "C:\Program Files\SplunkUniversalForwarder\bin\splunk.exe" show servername
+      & "C:\Program Files\SplunkUniversalForwarder\bin\splunk.exe" show default-hostname
+      write-verbose "You had now successfully updated your Splunk servername and default-hostname."
+      Write-Log "Script complete."
+  register: pwsh_output
+
+- name: Output std
+  debug:
+    var: pwsh_output
+    verbosity: 1
+  delegate_to: localhost

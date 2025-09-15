@@ -1,0 +1,9 @@
+---
+- name: Windows post provisioning
+  hosts: "{{ fqdn }}" # delegating to the fqdn of the newly provisioned windows host
+  gather_facts: false
+
+  tasks:
+    - name: Update Splunk
+      include_tasks:
+        file: ./tasks/splunk_update.yml

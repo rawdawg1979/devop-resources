@@ -1,0 +1,18 @@
+---
+vmware_host: vc@accounts.wustl.edu
+vmware_user: user@wustl.com
+vmware_validate_certs: false     
+#vmware_password:
+domain_name: accounts.wustl.edu
+fqdn: host_name.domain_name
+os_type: linux
+#host_ip: 10.10.10.10
+#subnet_mask: 255.255.255.0
+#default_gateway: 10.10.10.1                              
+vm_dns_server_1: 1.2.3.4
+vm_dns_server_2: 10.251.22.12
+vm_powered_on: true
+#vlan_id:                         
+#vm_template: vm_template_name
+vm_folder: VRA
+vm_time_zone:  America/Chicago

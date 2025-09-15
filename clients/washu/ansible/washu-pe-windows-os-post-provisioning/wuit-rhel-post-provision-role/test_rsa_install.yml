@@ -1,0 +1,9 @@
+---
+- name: RHEL Post Provisioning
+  hosts: "{{ fqdn }}" # delegating to the fqdn of the newly provisioned rhel host
+  gather_facts: false
+
+  tasks:
+    - name: Run RHEL Post-provsion Script
+      include_tasks:
+        file: ./tasks/run_rhel_postprovision_script.yml
