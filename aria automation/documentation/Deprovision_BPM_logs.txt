@@ -1,0 +1,84 @@
+Step 1) Change Task status to In Progress
+Payload 
+<variable type="ChangeRequestStatus" container="DHSCUST">
+  <correlationId type="String"><![CDATA[5004]]></correlationId>
+  <changeRecordNumber type="String"></changeRecordNumber>
+  <action type="String"><![CDATA[Deprovision]]></action>
+  <status type="String"><![CDATA[In_Progress]]></status>
+  <transactionType type="String"><![CDATA[Update Task]]></transactionType>
+  <scheduledStartDate type="String"><![CDATA[2024-06-18 14:08:55]]></scheduledStartDate>
+  <scheduledEndDate type="String"><![CDATA[2024-06-28 14:07:55]]></scheduledEndDate>
+  <actualStartDate type="String"><![CDATA[2024-06-18 14:10:56]]></actualStartDate>
+  <vmRequestDetails type="VirtualMachineRequestDetails">
+    <networks type="Network[]" />
+    <serverName type="String"><![CDATA[cdcwvgfniiqd01]]></serverName>
+  </vmRequestDetails>
+  <processInstanceId type="String"><![CDATA[14206]]></processInstanceId>
+  <taskIDNumber type="String"><![CDATA[SCTASK0034148]]></taskIDNumber>
+</variable>
+
+restMethod  : POST
+restEndpoint: https://api-na-libprod-i1.integrationservices.ibm.com:8443/manulife-icds-bpm-snow/
+contentType : application/xml
+
+
+Step 2) 
+part a)
+Get IP Address of the deployment based on the name (cdcwvgfniiqd01)
+
+part b)
+Get refresh token 
+Get bearer Token 
+Get DeploymentID 
+
+Add 7 days to the current date time and that is the lease Expiration Date 
+{"actionId":"Deployment.ChangeLease","inputs":{"Lease Expiration Date":"2024-06-25T14:11:09Z"}}
+/deployment/api/deployments/82c74558-088a-4f80-88e4-32a66e562979/requests
+
+
+part c)
+Power Off VM 
+Machine Resource ID: 74ea4f96-7fd4-339d-946b-7884faadc3cb
+Post /deployment/api/deployments/82c74558-088a-4f80-88e4-32a66e562979/resources/74ea4f96-7fd4-339d-946b-7884faadc3cb/requests
+{"actionId":"Cloud.vSphere.Machine.Shutdown","reason":"Setting Lease"}
+
+Email Map for Qualys is {cc=, attachmentFileNames=, subject= Please remove from Qualys , domain=, from=ManulifeICDSDeprovisioning@kyndryl.com, mimeType=text/html, to=ICDS-BPM-QualysSS@kyndryl.com, message=The server listed below has been decommisioned. Please remove the servers from Qualys Console. <br> <br>cdcwvgfniiqd01 - 10.101.149.204 <br>Thank you., username=}
+
+Email Map for patching is {cc=, attachmentFileNames=, subject=Decommissions -- Servers in Maintenance Mode -- Patching Team Notification , domain=, from=ManulifeICDSDeprovisioning@kyndryl.com, mimeType=text/html, to=ICDS-MLI-PATCH@kyndryl.com, message=The server listed below has been decommisioned. <br> <br>cdcwvgfniiqd01 - 10.101.149.204 <br>Thank you., username=}
+
+Email Map for BPM Decom is {cc=, attachmentFileNames=, subject=BPM Automation - Decommissions -- , domain=, from=ManulifeICDSDeprovisioning@kyndryl.com, mimeType=text/html, to=ICDS-BPM-Intel-SS@kyndryl.com, message=The server listed below has been decommisioned and put into maintenance mode. <br> <br>cdcwvgfniiqd01 - 10.101.149.204 <br>@BACKUP : Unsubscribe from the backup service <br> @Tivoli : Lower Monitoring and SEA Tool <br>Thank you., username=}
+
+
+
+wait for 7 days then delete the deployment 
+/iaas/api/deployments/82c74558-088a-4f80-88e4-32a66e562979
+DELETE
+
+
+Update the CTASK to closed 
+<variable type="ChangeRequestStatus" container="DHSCUST">
+  <correlationId type="String"><![CDATA[5005]]></correlationId>
+  <changeRecordNumber type="String"></changeRecordNumber>
+  <action type="String"><![CDATA[Deprovision]]></action>
+  <status type="String"><![CDATA[Closed]]></status>
+  <errorMessage type="String"><![CDATA[; None; ; ; ; ; ; ; ; ; ; ; ; ; ; Error: ; ]]></errorMessage>
+  <transactionType type="String"><![CDATA[Close Task]]></transactionType>
+  <scheduledStartDate type="String"><![CDATA[2024-06-18 14:08:55]]></scheduledStartDate>
+  <scheduledEndDate type="String"><![CDATA[2024-06-28 14:07:55]]></scheduledEndDate>
+  <actualStartDate type="String"><![CDATA[2024-06-19 20:14:59]]></actualStartDate>
+  <actualEndDate type="String"><![CDATA[2024-06-27 08:53:08]]></actualEndDate>
+  <vmRequestDetails type="VirtualMachineRequestDetails">
+    <cpu type="Integer"><![CDATA[4]]></cpu>
+    <memory type="Integer"><![CDATA[16]]></memory>
+    <networks type="Network[]">
+      <item>
+        <ipAddress type="String"><![CDATA[10.101.149.204]]></ipAddress>
+      </item>
+    </networks>
+    <pattern type="String"><![CDATA[Microsoft Windows Server 2016 or later (64-bit)]]></pattern>
+    <serverName type="String"><![CDATA[cdcwvgfniiqd01]]></serverName>
+  </vmRequestDetails>
+  <processInstanceId type="String"><![CDATA[14159]]></processInstanceId>
+  <taskIDNumber type="String"><![CDATA[SCTASK0034148]]></taskIDNumber>
+</variable>
+https://api-na-libprod-i1.integrationservices.ibm.com:8443/manulife-icds-bpm-snow/
